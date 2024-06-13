@@ -9,8 +9,11 @@ def get_measure(term: str) -> int:
     :param term: Given term/word
     :return: Measure value m
     """
-    # TODO: Implement this function. (PR03)
-    raise NotImplementedError('This function was not implemented yet.')
+    constants = "[^aeiou]"  
+    vowels = "[aeiouy]"  
+    form = f"^{constants}*({vowels}{constants})"
+    m = len(re.findall(form, term))
+    return m
 
 
 def condition_v(stem: str) -> bool:
@@ -19,8 +22,7 @@ def condition_v(stem: str) -> bool:
     :param stem: Word stem to check
     :return: True if the condition *v* holds
     """
-    # TODO: Implement this function. (PR03)
-    raise NotImplementedError('This function was not implemented yet.')
+    return bool(re.search(r"[aeiouy]", stem))
 
 
 def condition_d(stem: str) -> bool:
@@ -29,8 +31,7 @@ def condition_d(stem: str) -> bool:
     :param stem: Word stem to check
     :return: True if the condition *d holds
     """
-    # TODO: Implement this function. (PR03)
-    raise NotImplementedError('This function was not implemented yet.')
+    return bool(re.search(r"(.)\1$", stem))
 
 
 def cond_o(stem: str) -> bool:
@@ -40,8 +41,7 @@ def cond_o(stem: str) -> bool:
     :param stem: Word stem to check
     :return: True if the condition *o holds
     """
-    # TODO: Implement this function. (PR03)
-    raise NotImplementedError('This function was not implemented yet.')
+    return bool(re.search(r"[^aeiou][aeiouy][^aeiou][^wxy]$", stem))
 
 
 def stem_term(term: str) -> str:
@@ -50,9 +50,95 @@ def stem_term(term: str) -> str:
     :param term:
     :return:
     """
-    # TODO: Implement this function. (PR03)
-    # Note: See the provided file "porter.txt" for information on how to implement it!
-    raise NotImplementedError('This function was not implemented yet.')
+    original_term = term
+    # Step 1a
+    if term.endswith('sses'):
+        term = term[:-2]
+    elif term.endswith('ies'):
+        term = term[:-2]
+    elif term.endswith('ss'):
+        pass
+    elif term.endswith('s'):
+        term = term[:-1]
+
+    # Step 1b
+    if term.endswith('eed'):
+        if get_measure(term[:-3]) > 0:
+            term = term[:-1]
+    elif term.endswith('ed'):
+        if condition_v(term[:-2]):
+            term = term[:-2]
+            if term.endswith(('at', 'bl', 'iz')):
+                term += 'e'
+            elif condition_d(term):
+                term = term[:-1]
+            elif cond_o(term):
+                term += 'e'
+    elif term.endswith('ing'):
+        if condition_v(term[:-3]):
+            term = term[:-3]
+            if term.endswith(('at', 'bl', 'iz')):
+                term += 'e'
+            elif condition_d(term):
+                term = term[:-1]
+            elif cond_o(term):
+                term += 'e'
+
+    # Step 1c
+    if term.endswith('y'):
+        if condition_v(term[:-1]):
+            term = term[:-1] + 'i'
+
+    # Step 2
+    step_2_suffixes = [
+        ('ational', 'ate'), ('tional', 'tion'), ('enci', 'ence'), ('anci', 'ance'),
+        ('izer', 'ize'), ('abli', 'able'), ('alli', 'al'), ('entli', 'ent'),
+        ('eli', 'e'), ('ousli', 'ous'), ('ization', 'ize'), ('ation', 'ate'),
+        ('ator', 'ate'), ('alism', 'al'), ('iveness', 'ive'), ('fulness', 'ful'),
+        ('ousness', 'ous'), ('aliti', 'al'), ('iviti', 'ive'), ('biliti', 'ble')
+    ]
+    for suffix, replacement in step_2_suffixes:
+        if term.endswith(suffix):
+            if get_measure(term[:-len(suffix)]) > 0:
+                term = term[:-len(suffix)] + replacement
+            break
+
+    # Step 3
+    step_3_suffixes = [
+        ('icate', 'ic'), ('ative', ''), ('alize', 'al'), ('iciti', 'ic'),
+        ('ical', 'ic'), ('ful', ''), ('ness', '')
+    ]
+    for suffix, replacement in step_3_suffixes:
+        if term.endswith(suffix):
+            if get_measure(term[:-len(suffix)]) > 0:
+                term = term[:-len(suffix)] + replacement
+            break
+
+    # Step 4
+    step_4_suffixes = [
+        'al', 'ance', 'ence', 'er', 'ic', 'able', 'ible', 'ant', 'ement', 'ment', 'ent',
+        'sion', 'tion', 'ou', 'ism', 'ate', 'iti', 'ous', 'ive', 'ize'
+    ]
+    for suffix in step_4_suffixes:
+        if term.endswith(suffix):
+            if get_measure(term[:-len(suffix)]) > 1:
+                term = term[:-len(suffix)]
+            break
+
+    # Step 5a
+    if term.endswith('e'):
+        if get_measure(term[:-1]) > 1:
+            term = term[:-1]
+        elif get_measure(term[:-1]) == 1 and not cond_o(term[:-1]):
+            term = term[:-1]
+
+    # Step 5b
+    if get_measure(term) > 1 and condition_d(term) and term.endswith('l'):
+        term = term[:-1]
+
+    # We read the porter.txt file and found the hidden note in line 354.
+
+    return term
 
 def stem_all_documents(collection: list[Document]):
     """
@@ -60,8 +146,8 @@ def stem_all_documents(collection: list[Document]):
     Warning: The result is NOT saved in the document's term list, but in the extra field stemmed_terms!
     :param collection: Document collection to process
     """
-    # TODO: Implement this function. (PR03)
-    raise NotImplementedError('This function was not implemented yet.')
+    for doc in collection:
+        doc.stemmed_terms = [stem_term(term) for term in doc.term_list]
 
 
 def stem_query_terms(query: str) -> str:
@@ -70,5 +156,6 @@ def stem_query_terms(query: str) -> str:
     :param query: User query, may contain Boolean operators and spaces.
     :return: Query with stemmed terms
     """
-    # TODO: Implement this function. (PR03)
-    raise NotImplementedError('This function was not implemented yet.')
+    terms = query.split()
+    stemmed_terms = [stem_term(term) for term in terms]
+    return ' '.join(stemmed_terms)
