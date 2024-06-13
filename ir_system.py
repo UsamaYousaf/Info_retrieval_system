@@ -18,6 +18,7 @@
 
 import json
 import os
+import time
 
 import cleanup
 import extraction
@@ -30,6 +31,7 @@ RAW_DATA_PATH = 'raw_data'
 DATA_PATH = 'data'
 COLLECTION_PATH = os.path.join(DATA_PATH, 'my_collection.json')
 STOPWORD_FILE_PATH = os.path.join(DATA_PATH, 'stopwords.json')
+GROUND_TRUTH_PATH = os.path.join(RAW_DATA_PATH, 'ground_truth.txt')
 
 # Menu choices:
 (CHOICE_LIST, CHOICE_SEARCH, CHOICE_EXTRACT, CHOICE_UPDATE_STOP_WORDS, CHOICE_SET_MODEL, CHOICE_SHOW_DOCUMENT,
@@ -60,6 +62,8 @@ class InformationRetrievalSystem(object):
 
         self.model = None  # Saves the current IR model in use.
         self.output_k = 5  # Controls how many results should be shown for a query.
+        
+        self.ground_truth = extraction.load_ground_truth(GROUND_TRUTH_PATH)
 
 
     def main_menu(self):
@@ -107,6 +111,9 @@ class InformationRetrievalSystem(object):
                 query = input('Query: ')
                 if stemming:
                     query = porter.stem_query_terms(query)
+                
+                #For measuring taken time for query processing
+                start_time = time.time()
 
                 if isinstance(self.model, models.InvertedListBooleanModel):
                     results = self.inverted_list_search(query, stemming, stop_word_filtering)
@@ -116,6 +123,8 @@ class InformationRetrievalSystem(object):
                     results = self.signature_search(query, stemming, stop_word_filtering)
                 else:
                     results = self.basic_query_search(query, stemming, stop_word_filtering)
+                
+                end_time = time.time()
 
                 # Output of results:
                 for (score, document) in results:
@@ -123,8 +132,9 @@ class InformationRetrievalSystem(object):
 
                 # Output of quality metrics:
                 print()
-                print(f'precision: {self.calculate_precision(results)}')
-                print(f'recall: {self.calculate_recall(results)}')
+                print(f'precision: {self.calculate_precision(query,results)}')
+                print(f'recall: {self.calculate_recall(query,results)}')
+                print(f'query processing time: {(end_time - start_time) * 1000} ms')  # Printing the query processing time in ms
 
             elif action_choice == CHOICE_EXTRACT:
                 # Extract document collection from text file.
@@ -240,8 +250,13 @@ class InformationRetrievalSystem(object):
         :return: List of tuples, where the first element is the relevance score and the second the corresponding
         document
         """
-        # TODO: Implement this function (PR03)
-        raise NotImplementedError('To be implemented in PR04')
+        if not hasattr(self, 'inverted_list') or self.inverted_list is None:
+            self.inverted_list = models.InvertedListBooleanModel()
+            self.inverted_list.build_inverted_list(self.collection)
+
+        doc_ids = self.inverted_list.search(query)
+        results = [(1, self.collection[doc_id]) for doc_id in doc_ids]
+        return results
 
     def buckley_lewit_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
         """
@@ -267,13 +282,33 @@ class InformationRetrievalSystem(object):
         # TODO: Implement this function (PR04)
         raise NotImplementedError('To be implemented in PR04')
 
-    def calculate_precision(self, result_list: list[tuple]) -> float:
-        # TODO: Implement this function (PR03)
-        raise NotImplementedError('To be implemented in PR03')
+    def calculate_precision(self, query: str, result_list: list[tuple]) -> float:
+        if query not in self.ground_truth:
+            return -1
 
-    def calculate_recall(self, result_list: list[tuple]) -> float:
-        # TODO: Implement this function (PR03)
-        raise NotImplementedError('To be implemented in PR03')
+        relevant_docs = self.ground_truth[query]
+        retrieved_docs = set(doc.document_id for score, doc in result_list)
+        true_positives = relevant_docs & retrieved_docs
+
+        if not retrieved_docs:
+            return -1
+
+        precision = len(true_positives) / len(retrieved_docs)
+        return precision
+
+    def calculate_recall(self, query: str, result_list: list[tuple]) -> float:
+        if query not in self.ground_truth:
+            return -1
+
+        relevant_docs = self.ground_truth[query]
+        retrieved_docs = set(doc.document_id for score, doc in result_list)
+        true_positives = relevant_docs & retrieved_docs
+
+        if not relevant_docs:
+            return -1
+
+        recall = len(true_positives) / len(relevant_docs)
+        return recall
 
 
 if __name__ == '__main__':

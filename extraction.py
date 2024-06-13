@@ -96,3 +96,26 @@ def load_collection_from_json(file_path: str) -> list[Document]:
     except FileNotFoundError:
         print('No collection was found. Creating empty one.')
         return []
+
+
+def load_ground_truth(filepath: str) -> dict:
+    """
+    Loads the ground truth data from a file.
+    :param filepath: Path to the ground truth file.
+    :return: A dictionary with query terms as keys and sets of relevant document IDs as values.
+    """
+    ground_truth = {}
+    try:
+        with open(filepath, 'r') as file:
+            for line in file:
+                if '-' in line:
+                    parts = line.split('-')
+                    query = parts[0].strip()
+                    try:
+                        relevant_docs = set(int(doc_id.strip()) - 1 for doc_id in parts[1].split(',') if doc_id.strip().isdigit())
+                        ground_truth[query] = relevant_docs
+                    except ValueError:
+                        print(f"Skipping line due to ValueError: {line}")
+    except FileNotFoundError:
+        print('Ground truth file not found.')
+    return ground_truth

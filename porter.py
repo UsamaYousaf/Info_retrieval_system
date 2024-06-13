@@ -1,7 +1,7 @@
 # Contains all functions related to the porter stemming algorithm.
 
 from document import Document
-
+import re #importing regular expressions
 
 def get_measure(term: str) -> int:
     """
@@ -147,7 +147,7 @@ def stem_all_documents(collection: list[Document]):
     :param collection: Document collection to process
     """
     for doc in collection:
-        doc.stemmed_terms = [stem_term(term) for term in doc.term_list]
+        doc.stemmed_terms = [stem_term(term) for term in doc.terms]
 
 
 def stem_query_terms(query: str) -> str:

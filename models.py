@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from document import Document
 from collections import Counter
-
+import re
 
 class RetrievalModel(ABC):
     @abstractmethod
@@ -68,9 +68,60 @@ class LinearBooleanModel(RetrievalModel):
 
 
 class InvertedListBooleanModel(RetrievalModel):
-    # TODO: Implement all abstract methods and __init__() in this class. (PR03)
     def __init__(self):
-        raise NotImplementedError()  # TODO: Remove this line and implement the function. (PR3, Task 2)
+        self.inverted_index = {}
+        self.all_docs = set()
+
+    def build_inverted_list(self, documents):
+        for doc_id, document in enumerate(documents):
+            self.all_docs.add(doc_id)
+            for term in document.terms:
+                if term not in self.inverted_index:
+                    self.inverted_index[term] = set()
+                self.inverted_index[term].add(doc_id)
+
+    def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
+        if stopword_filtering:
+            terms = document.filtered_terms
+        else:
+            terms = document.terms
+
+        if stemming:
+            terms = document.stemmed_terms
+
+        # Create a binary vector indicating the presence/absence of terms
+        term_counter = Counter(terms)
+        return {term: 1 for term in term_counter}
+
+    def query_to_representation(self, query: str):
+        # Parse the query into tokens
+        tokens = re.split(r'(\(|\)|\&|\||\-)', query)
+        return [token for token in tokens if token.strip()]
+
+    def match(self, document_representation, query_representation) -> float:
+        raise NotImplementedError()  # Not used in this model
+
+    def search(self, query):
+        tokens = self.query_to_representation(query)
+        result_stack = []
+        for token in tokens:
+            if token == '&':
+                right = result_stack.pop()
+                left = result_stack.pop()
+                result_stack.append(left & right)
+            elif token == '|':
+                right = result_stack.pop()
+                left = result_stack.pop()
+                result_stack.append(left | right)
+            elif token == '-':
+                term = result_stack.pop()
+                result_stack.append(self.all_docs - term)
+            else:
+                if token in self.inverted_index:
+                    result_stack.append(self.inverted_index[token])
+                else:
+                    result_stack.append(set())
+        return result_stack.pop()
 
     def __str__(self):
         return 'Boolean Model (Inverted List)'
