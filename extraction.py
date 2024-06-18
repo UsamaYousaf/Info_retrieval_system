@@ -38,7 +38,7 @@ def extract_collection(source_file_path: str) -> list[Document]:
         raw_text = ' '.join(parts[1:]).replace('\n', ' ').strip()
 
         document = Document()
-        document.document_id = doc_id
+        document.document_id = doc_id -1
         document.title = title
         document.raw_text = raw_text
         document.terms = raw_text.split()
