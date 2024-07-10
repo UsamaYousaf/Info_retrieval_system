@@ -271,16 +271,9 @@ class InformationRetrievalSystem(object):
         raise NotImplementedError('To be implemented in PR04')
 
     def signature_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
-        """
-        Fast Boolean query search using signatures for quicker processing.
-        :param query: Query string
-        :param stemming: Controls, whether stemming is used
-        :param stop_word_filtering: Controls, whether stop-words are ignored in the search
-        :return: List of tuples, where the first element is the relevance score and the second the corresponding
-        document
-        """
-        # TODO: Implement this function (PR04)
-        raise NotImplementedError('To be implemented in PR04')
+        if isinstance(self.model, models.SignatureBasedBooleanModel):
+         results = self.model.search(query)
+        return [(1, doc) for doc in results]
 
     def calculate_precision(self, query: str, result_list: list[tuple]) -> float:
         if query not in self.ground_truth:

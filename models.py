@@ -4,6 +4,9 @@ from abc import ABC, abstractmethod
 from document import Document
 from collections import Counter
 import re
+import hashlib
+import hashlib
+
 
 class RetrievalModel(ABC):
     @abstractmethod
@@ -127,10 +130,71 @@ class InvertedListBooleanModel(RetrievalModel):
         return 'Boolean Model (Inverted List)'
 
 
+
 class SignatureBasedBooleanModel(RetrievalModel):
-    # TODO: Implement all abstract methods. (PR04)
-    def __init__(self):
-        raise NotImplementedError()  # TODO: Remove this line and implement the function.
+    def __init__(self, F=64, D=4):
+        self.F = F  # Length of the bit array
+        self.D = D  # Number of hash functions
+        self.documents = []
+        self.signatures = []
+
+    def _hash_function(self, term, seed):
+        h = hashlib.sha256(term.encode('utf-8') + str(seed).encode('utf-8'))
+        return int(h.hexdigest(), 16) % self.F
+
+    def _create_signature(self, terms):
+        signature = [0] * self.F
+        for term in terms:
+            for i in range(self.D):
+                pos = self._hash_function(term, i)
+                signature[pos] = 1
+        return signature
+
+    def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
+        if stopword_filtering:
+            terms = document.filtered_terms
+        else:
+            terms = document.terms
+
+        if stemming:
+            terms = document.stemmed_terms
+
+        signature = self._create_signature(terms)
+        self.documents.append(document)
+        self.signatures.append(signature)
+        return signature
+
+    def query_to_representation(self, query: str):
+        query_terms = query.lower().split()
+        query_signature = self._create_signature(query_terms)
+        return query_signature
+
+    def match(self, document_representation, query_representation) -> float:
+        # Simple bitwise AND to count the matching bits
+        match_count = sum(1 for doc_bit, query_bit in zip(document_representation, query_representation) if doc_bit & query_bit)
+        return match_count / self.F  # Normalize by the bit array length
+
+    def search(self, query: str):
+        tokens = re.split(r'(\(|\)|\&|\|)', query)
+        tokens = [token.strip() for token in tokens if token.strip()]
+
+        result_stack = []
+        for token in tokens:
+            if token == '&':
+                right = result_stack.pop()
+                left = result_stack.pop()
+                result_stack.append([l & r for l, r in zip(left, right)])
+            elif token == '|':
+                right = result_stack.pop()
+                left = result_stack.pop()
+                result_stack.append([l | r for l, r in zip(left, right)])
+            else:
+                query_signature = self.query_to_representation(token)
+                match_scores = [self.match(doc_sig, query_signature) for doc_sig in self.signatures]
+                result_stack.append([score > 0 for score in match_scores])
+
+        results = [self.documents[i] for i, match in enumerate(result_stack.pop()) if match]
+        return results
 
     def __str__(self):
         return 'Boolean Model (Signatures)'
