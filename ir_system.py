@@ -259,16 +259,16 @@ class InformationRetrievalSystem(object):
         return results
 
     def buckley_lewit_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
-        """
-        Fast query search for the Vector Space Model using the algorithm by Buckley & Lewit.
-        :param query: Query string
-        :param stemming: Controls, whether stemming is used
-        :param stop_word_filtering: Controls, whether stop-words are ignored in the search
-        :return: List of tuples, where the first element is the relevance score and the second the corresponding
-        document
-        """
-        # TODO: Implement this function (PR04)
-        raise NotImplementedError('To be implemented in PR04')
+        if isinstance(self.model, models.VectorSpaceModel):
+            if not self.model.document_vectors:
+                self.model.build_inverted_index(self.collection)
+            query_representation = self.model.query_to_representation(query)
+            scores = [(self.model.match(self.model.document_vectors[doc_id], query_representation), doc)
+                    for doc_id, doc in enumerate(self.collection)]
+            ranked_collection = sorted(scores, key=lambda x: x[0], reverse=True)
+            results = ranked_collection[:self.output_k]
+            return results
+
 
     def signature_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
         if isinstance(self.model, models.SignatureBasedBooleanModel):

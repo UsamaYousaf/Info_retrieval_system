@@ -2,10 +2,12 @@
 
 from abc import ABC, abstractmethod
 from document import Document
-from collections import Counter
+from collections import Counter, defaultdict
 import re
 import hashlib
-import hashlib
+import numpy as np
+import math
+
 
 
 class RetrievalModel(ABC):
@@ -201,9 +203,60 @@ class SignatureBasedBooleanModel(RetrievalModel):
 
 
 class VectorSpaceModel(RetrievalModel):
-    # TODO: Implement all abstract methods. (PR04)
     def __init__(self):
-        raise NotImplementedError()  # TODO: Remove this line and implement the function.
+        self.inverted_index = defaultdict(list)
+        self.document_vectors = {}
+        self.doc_lengths = {}
+        self.num_documents = 0
+
+    def build_inverted_index(self, documents):
+        self.num_documents = len(documents)
+        for doc_id, document in enumerate(documents):
+            term_freq = Counter(document.terms)
+            for term, freq in term_freq.items():
+                self.inverted_index[term].append((doc_id, freq))
+        
+        for doc_id, document in enumerate(documents):
+            self.document_vectors[doc_id] = self._create_document_vector(doc_id, document.terms)
+        
+        self.doc_lengths = {doc_id: np.linalg.norm(vec) for doc_id, vec in self.document_vectors.items()}
+
+    def _create_document_vector(self, doc_id, terms):
+        term_freq = Counter(terms)
+        vec = np.zeros(len(self.inverted_index))
+        for term, idx in zip(self.inverted_index.keys(), range(len(self.inverted_index))):
+            if term in term_freq:
+                tf = term_freq[term]
+                idf = math.log(self.num_documents / len(self.inverted_index[term]))
+                vec[idx] = tf * idf
+        return vec
+
+    def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
+        if stopword_filtering:
+            terms = document.filtered_terms
+        else:
+            terms = document.terms
+
+        if stemming:
+            terms = document.stemmed_terms
+
+        return self._create_document_vector(document.document_id, terms)
+
+    def query_to_representation(self, query: str):
+        query_terms = query.lower().split()
+        term_freq = Counter(query_terms)
+        vec = np.zeros(len(self.inverted_index))
+        for term, idx in zip(self.inverted_index.keys(), range(len(self.inverted_index))):
+            if term in term_freq:
+                tf = term_freq[term]
+                idf = math.log(self.num_documents / len(self.inverted_index[term]))
+                vec[idx] = tf * idf
+        return vec
+
+    def match(self, document_representation, query_representation) -> float:
+        if np.linalg.norm(document_representation) == 0 or np.linalg.norm(query_representation) == 0:
+            return 0.0
+        return np.dot(document_representation, query_representation) / (np.linalg.norm(document_representation) * np.linalg.norm(query_representation))
 
     def __str__(self):
         return 'Vector Space Model'
