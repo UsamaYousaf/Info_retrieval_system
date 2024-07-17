@@ -108,7 +108,7 @@ class InformationRetrievalSystem(object):
                 stemming = (search_mode == SEARCH_STEM) or (search_mode == SEARCH_SW_STEM)
 
                 # Actual query processing begins here:
-                query = input('Query: ')
+                query = input('Query: ').lower()  # Convert query to lower case
                 if stemming:
                     query = porter.stem_query_terms(query)
                 
@@ -148,7 +148,7 @@ class InformationRetrievalSystem(object):
                     cleanup.filter_collection(self.collection,STOPWORD_FILE_PATH)
 
                 if input('Should stemming be performed? [y/N]: ') == 'y':
-                    porter.stem_all_documents(self.collection)
+                    porter.stem_all_docs(self.collection)
 
                 extraction.save_collection_as_json(self.collection, COLLECTION_PATH)
                 print('Done.\n')
@@ -269,11 +269,10 @@ class InformationRetrievalSystem(object):
             results = ranked_collection[:self.output_k]
             return results
 
-
     def signature_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
         if isinstance(self.model, models.SignatureBasedBooleanModel):
-         results = self.model.search(query)
-        return [(1, doc) for doc in results]
+            results = self.model.search(query)
+            return [(1, doc) for doc in results]
 
     def calculate_precision(self, query: str, result_list: list[tuple]) -> float:
         if query not in self.ground_truth:
@@ -299,6 +298,7 @@ class InformationRetrievalSystem(object):
 
         if not relevant_docs:
             return -1
+
 
         recall = len(true_positives) / len(relevant_docs)
         return recall

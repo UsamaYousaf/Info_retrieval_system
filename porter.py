@@ -1,8 +1,7 @@
-# Contains all functions related to the porter stemming algorithm.
-
+import re
 from document import Document
-import re #importing regular expressions
 
+# Helper functions to identify certain conditions in stems
 def get_measure(term: str) -> int:
     """
     Returns the measure m of a given term [C](VC){m}[V].
@@ -15,7 +14,6 @@ def get_measure(term: str) -> int:
     m = len(re.findall(form, term))
     return m
 
-
 def condition_v(stem: str) -> bool:
     """
     Returns whether condition *v* is true for a given stem (= the stem contains a vowel).
@@ -23,7 +21,6 @@ def condition_v(stem: str) -> bool:
     :return: True if the condition *v* holds
     """
     return bool(re.search(r"[aeiouy]", stem))
-
 
 def condition_d(stem: str) -> bool:
     """
@@ -33,7 +30,6 @@ def condition_d(stem: str) -> bool:
     """
     return bool(re.search(r"(.)\1$", stem))
 
-
 def cond_o(stem: str) -> bool:
     """
     Returns whether condition *o is true for a given stem (= the stem ends cvc, where the second c is not W, X or Y
@@ -42,7 +38,6 @@ def cond_o(stem: str) -> bool:
     :return: True if the condition *o holds
     """
     return bool(re.search(r"[^aeiou][aeiouy][^aeiou][^wxy]$", stem))
-
 
 def stem_term(term: str) -> str:
     """
@@ -70,7 +65,7 @@ def stem_term(term: str) -> str:
             term = term[:-2]
             if term.endswith(('at', 'bl', 'iz')):
                 term += 'e'
-            elif condition_d(term):
+            elif condition_d(term) and not term[-1] in "lsz":
                 term = term[:-1]
             elif cond_o(term):
                 term += 'e'
@@ -79,15 +74,14 @@ def stem_term(term: str) -> str:
             term = term[:-3]
             if term.endswith(('at', 'bl', 'iz')):
                 term += 'e'
-            elif condition_d(term):
+            elif condition_d(term) and not term[-1] in "lsz":
                 term = term[:-1]
             elif cond_o(term):
                 term += 'e'
 
     # Step 1c
-    if term.endswith('y'):
-        if condition_v(term[:-1]):
-            term = term[:-1] + 'i'
+    if term.endswith('y') and condition_v(term[:-1]):
+        term = term[:-1] + 'i'
 
     # Step 2
     step_2_suffixes = [
@@ -98,9 +92,8 @@ def stem_term(term: str) -> str:
         ('ousness', 'ous'), ('aliti', 'al'), ('iviti', 'ive'), ('biliti', 'ble')
     ]
     for suffix, replacement in step_2_suffixes:
-        if term.endswith(suffix):
-            if get_measure(term[:-len(suffix)]) > 0:
-                term = term[:-len(suffix)] + replacement
+        if term.endswith(suffix) and get_measure(term[:-len(suffix)]) > 0:
+            term = term[:-len(suffix)] + replacement
             break
 
     # Step 3
@@ -109,9 +102,8 @@ def stem_term(term: str) -> str:
         ('ical', 'ic'), ('ful', ''), ('ness', '')
     ]
     for suffix, replacement in step_3_suffixes:
-        if term.endswith(suffix):
-            if get_measure(term[:-len(suffix)]) > 0:
-                term = term[:-len(suffix)] + replacement
+        if term.endswith(suffix) and get_measure(term[:-len(suffix)]) > 0:
+            term = term[:-len(suffix)] + replacement
             break
 
     # Step 4
@@ -120,16 +112,13 @@ def stem_term(term: str) -> str:
         'sion', 'tion', 'ou', 'ism', 'ate', 'iti', 'ous', 'ive', 'ize'
     ]
     for suffix in step_4_suffixes:
-        if term.endswith(suffix):
-            if get_measure(term[:-len(suffix)]) > 1:
-                term = term[:-len(suffix)]
+        if term.endswith(suffix) and get_measure(term[:-len(suffix)]) > 1:
+            term = term[:-len(suffix)]
             break
 
     # Step 5a
     if term.endswith('e'):
-        if get_measure(term[:-1]) > 1:
-            term = term[:-1]
-        elif get_measure(term[:-1]) == 1 and not cond_o(term[:-1]):
+        if get_measure(term[:-1]) > 1 or (get_measure(term[:-1]) == 1 and not cond_o(term[:-1])):
             term = term[:-1]
 
     # Step 5b
@@ -140,15 +129,14 @@ def stem_term(term: str) -> str:
 
     return term
 
-def stem_all_documents(collection: list[Document]):
+def stem_all_docs(doc_collection: list[Document]):
     """
     For each document in the given collection, this method uses the stem_term() function on all terms in its term list.
     Warning: The result is NOT saved in the document's term list, but in the extra field stemmed_terms!
-    :param collection: Document collection to process
+    :param doc_collection: Document collection to process
     """
-    for doc in collection:
+    for doc in doc_collection:
         doc.stemmed_terms = [stem_term(term) for term in doc.terms]
-
 
 def stem_query_terms(query: str) -> str:
     """

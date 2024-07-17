@@ -1,5 +1,3 @@
-# Contains all retrieval models.
-
 from abc import ABC, abstractmethod
 from document import Document
 from collections import Counter, defaultdict
@@ -8,42 +6,22 @@ import hashlib
 import numpy as np
 import math
 
-
-
 class RetrievalModel(ABC):
     @abstractmethod
     def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
-        """
-        Converts a document into its model-specific representation.
-        This is an abstract method and not meant to be edited. Implement it in the subclasses!
-        :param document: Document object to be represented
-        :param stopword_filtering: Controls, whether the document should first be freed of stopwords
-        :param stemming: Controls, whether stemming is used on the document's terms
-        :return: A representation of the document. Data type and content depend on the implemented model.
-        """
+        pass
 
     @abstractmethod
     def query_to_representation(self, query: str):
-        """
-        Determines the representation of a query according to the model's concept.
-        :param query: Search query of the user
-        :return: Query representation in whatever data type or format is required by the model.
-        """
+        pass
 
     @abstractmethod
     def match(self, document_representation, query_representation) -> float:
-        """
-        Matches the query and document presentation according to the model's concept.
-        :param document_representation: Data that describes one document
-        :param query_representation:  Data that describes a query
-        :return: Numerical approximation of the similarity between the query and document representation. Higher is
-        "more relevant", lower is "less relevant".
-        """
-
+        pass
 
 class LinearBooleanModel(RetrievalModel):
     def __init__(self):
-        pass  # No specific initialization needed for this model
+        pass
 
     def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
         if stopword_filtering:
@@ -54,23 +32,19 @@ class LinearBooleanModel(RetrievalModel):
         if stemming:
             terms = document.stemmed_terms
 
-        # Create a binary vector indicating the presence/absence of terms
-        term_counter = Counter(terms)
+        term_counter = Counter(term.lower() for term in terms)  # Convert terms to lower case
         return {term: 1 for term in term_counter}
 
     def query_to_representation(self, query: str):
-        # Simple representation: binary vector indicating the presence/absence of terms
-        query_terms = query.lower().split()  # Split query into terms
+        query_terms = query.lower().split()  # Split query into terms and convert to lower case
         return {term: 1 for term in query_terms}
 
     def match(self, document_representation, query_representation) -> float:
-        # Simple matching: count the number of common terms between document and query
         common_terms = set(document_representation.keys()).intersection(query_representation.keys())
         return len(common_terms)  # Return the count of common terms
 
     def __str__(self):
         return 'Boolean Model (Linear)'
-
 
 class InvertedListBooleanModel(RetrievalModel):
     def __init__(self):
@@ -81,6 +55,7 @@ class InvertedListBooleanModel(RetrievalModel):
         for doc_id, document in enumerate(documents):
             self.all_docs.add(doc_id)
             for term in document.terms:
+                term = term.lower()  # Convert term to lower case
                 if term not in self.inverted_index:
                     self.inverted_index[term] = set()
                 self.inverted_index[term].add(doc_id)
@@ -94,31 +69,35 @@ class InvertedListBooleanModel(RetrievalModel):
         if stemming:
             terms = document.stemmed_terms
 
-        # Create a binary vector indicating the presence/absence of terms
-        term_counter = Counter(terms)
+        term_counter = Counter(term.lower() for term in terms)  # Convert terms to lower case
         return {term: 1 for term in term_counter}
 
     def query_to_representation(self, query: str):
-        # Parse the query into tokens
-        tokens = re.split(r'(\(|\)|\&|\||\-)', query)
+        tokens = re.split(r'(\(|\)|\&|\||\-)', query.lower())  # Convert query to lower case
         return [token for token in tokens if token.strip()]
 
     def match(self, document_representation, query_representation) -> float:
-        raise NotImplementedError()  # Not used in this model
+        raise NotImplementedError()
 
     def search(self, query):
-        tokens = self.query_to_representation(query)
+        tokens = self.query_to_representation(query.lower())  # Convert query to lower case
         result_stack = []
         for token in tokens:
             if token == '&':
+                if len(result_stack) < 2:  
+                    return []
                 right = result_stack.pop()
                 left = result_stack.pop()
                 result_stack.append(left & right)
             elif token == '|':
+                if len(result_stack) < 2:  
+                    return []
                 right = result_stack.pop()
                 left = result_stack.pop()
                 result_stack.append(left | right)
             elif token == '-':
+                if not result_stack:  # Ensure there is an operand
+                    return []
                 term = result_stack.pop()
                 result_stack.append(self.all_docs - term)
             else:
@@ -126,17 +105,17 @@ class InvertedListBooleanModel(RetrievalModel):
                     result_stack.append(self.inverted_index[token])
                 else:
                     result_stack.append(set())
+        if not result_stack:
+            return []
         return result_stack.pop()
 
     def __str__(self):
         return 'Boolean Model (Inverted List)'
 
-
-
 class SignatureBasedBooleanModel(RetrievalModel):
     def __init__(self, F=64, D=4):
-        self.F = F  # Length of the bit array
-        self.D = D  # Number of hash functions
+        self.F = F
+        self.D = D
         self.documents = []
         self.signatures = []
 
@@ -147,6 +126,7 @@ class SignatureBasedBooleanModel(RetrievalModel):
     def _create_signature(self, terms):
         signature = [0] * self.F
         for term in terms:
+            term = term.lower()  # Convert term to lower case
             for i in range(self.D):
                 pos = self._hash_function(term, i)
                 signature[pos] = 1
@@ -167,26 +147,29 @@ class SignatureBasedBooleanModel(RetrievalModel):
         return signature
 
     def query_to_representation(self, query: str):
-        query_terms = query.lower().split()
+        query_terms = query.lower().split()  # Convert query terms to lower case
         query_signature = self._create_signature(query_terms)
         return query_signature
 
     def match(self, document_representation, query_representation) -> float:
-        # Simple bitwise AND to count the matching bits
         match_count = sum(1 for doc_bit, query_bit in zip(document_representation, query_representation) if doc_bit & query_bit)
         return match_count / self.F  # Normalize by the bit array length
 
     def search(self, query: str):
-        tokens = re.split(r'(\(|\)|\&|\|)', query)
+        tokens = re.split(r'(\(|\)|\&|\|)', query.lower())  # Convert query to lower case
         tokens = [token.strip() for token in tokens if token.strip()]
 
         result_stack = []
         for token in tokens:
             if token == '&':
+                if len(result_stack) < 2:  
+                    return []
                 right = result_stack.pop()
                 left = result_stack.pop()
                 result_stack.append([l & r for l, r in zip(left, right)])
             elif token == '|':
+                if len(result_stack) < 2:  
+                    return []
                 right = result_stack.pop()
                 left = result_stack.pop()
                 result_stack.append([l | r for l, r in zip(left, right)])
@@ -195,12 +178,13 @@ class SignatureBasedBooleanModel(RetrievalModel):
                 match_scores = [self.match(doc_sig, query_signature) for doc_sig in self.signatures]
                 result_stack.append([score > 0 for score in match_scores])
 
+        if not result_stack:
+            return []
         results = [self.documents[i] for i, match in enumerate(result_stack.pop()) if match]
         return results
 
     def __str__(self):
         return 'Boolean Model (Signatures)'
-
 
 class VectorSpaceModel(RetrievalModel):
     def __init__(self):
@@ -212,7 +196,7 @@ class VectorSpaceModel(RetrievalModel):
     def build_inverted_index(self, documents):
         self.num_documents = len(documents)
         for doc_id, document in enumerate(documents):
-            term_freq = Counter(document.terms)
+            term_freq = Counter(term.lower() for term in document.terms)  # Convert terms to lower case
             for term, freq in term_freq.items():
                 self.inverted_index[term].append((doc_id, freq))
         
@@ -222,7 +206,7 @@ class VectorSpaceModel(RetrievalModel):
         self.doc_lengths = {doc_id: np.linalg.norm(vec) for doc_id, vec in self.document_vectors.items()}
 
     def _create_document_vector(self, doc_id, terms):
-        term_freq = Counter(terms)
+        term_freq = Counter(term.lower() for term in terms)  # Convert terms to lower case
         vec = np.zeros(len(self.inverted_index))
         for term, idx in zip(self.inverted_index.keys(), range(len(self.inverted_index))):
             if term in term_freq:
@@ -243,7 +227,7 @@ class VectorSpaceModel(RetrievalModel):
         return self._create_document_vector(document.document_id, terms)
 
     def query_to_representation(self, query: str):
-        query_terms = query.lower().split()
+        query_terms = query.lower().split()  # Convert query terms to lower case
         term_freq = Counter(query_terms)
         vec = np.zeros(len(self.inverted_index))
         for term, idx in zip(self.inverted_index.keys(), range(len(self.inverted_index))):
@@ -261,11 +245,9 @@ class VectorSpaceModel(RetrievalModel):
     def __str__(self):
         return 'Vector Space Model'
 
-
 class FuzzySetModel(RetrievalModel):
-    # TODO: Implement all abstract methods. (PR04)
     def __init__(self):
-        raise NotImplementedError()  # TODO: Remove this line and implement the function.
+        raise NotImplementedError()
 
     def __str__(self):
         return 'Fuzzy Set Model'
