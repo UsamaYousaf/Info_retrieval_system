@@ -1,0 +1,12 @@
+Your submission does not fulfill the standards to pass this assignment yet. 
+You have a chance to fix the named issues until Sep. 16, 2024, 11:59pm. Please upload your corrected version here. 
+
+If(!) that does not work, mail it to stahlale@b-tu.de.
+
+The following feedback was given by the evaluator. 
+Please use it to address the issues in your code:
+
+Recall and Precision don’t get calculated when using logical operators, which also don’t work for any search.
+Signature method doesn’t retrieve any documents. 
+Vector search seems to work ok. 
+Please return now every relevant document, not only 5.

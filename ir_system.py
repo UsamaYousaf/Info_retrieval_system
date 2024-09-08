@@ -18,6 +18,7 @@
 
 import json
 import os
+import re
 import time
 
 import cleanup
@@ -127,8 +128,10 @@ class InformationRetrievalSystem(object):
                 end_time = time.time()
 
                 # Output of results:
-                for (score, document) in results:
-                    print(f'{score}: {document}')
+                print(f'\nTotal results: {len(results)}\n')  # Show total number of results
+
+                for index, (score, document) in enumerate(results, start=1):  # Enumerate to number the results
+                    print(f' {score}: {document}')
 
                 # Output of quality metrics:
                 print()
@@ -238,7 +241,7 @@ class InformationRetrievalSystem(object):
                                     for d in self.collection]
         scores = [self.model.match(dr, query_representation) for dr in document_representations]
         ranked_collection = sorted(zip(scores, self.collection), key=lambda x: x[0], reverse=True)
-        results = ranked_collection[:self.output_k]
+        results = [result for result in ranked_collection if result[0] > 0]
         return results
 
     def inverted_list_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
@@ -266,43 +269,60 @@ class InformationRetrievalSystem(object):
             scores = [(self.model.match(self.model.document_vectors[doc_id], query_representation), doc)
                     for doc_id, doc in enumerate(self.collection)]
             ranked_collection = sorted(scores, key=lambda x: x[0], reverse=True)
-            results = ranked_collection[:self.output_k]
+            results = [result for result in ranked_collection if result[0] > 0]
             return results
 
+
     def signature_search(self, query: str, stemming: bool, stop_word_filtering: bool) -> list:
+        
         if isinstance(self.model, models.SignatureBasedBooleanModel):
+            # Ensure signatures are created for all documents if not already created
+            if not self.model.signatures:
+                for document in self.collection:
+                    self.model.document_to_representation(document, stop_word_filtering, stemming)
+            
+            # Perform the search using the signature-based method
             results = self.model.search(query)
-            return [(1, doc) for doc in results]
+            return [(1, doc) for doc in results]   
 
     def calculate_precision(self, query: str, result_list: list[tuple]) -> float:
-        if query not in self.ground_truth:
-            return -1
-
-        relevant_docs = self.ground_truth[query]
+        # Split the query on logical operators if needed
+        query_terms = re.split(r'[&|\-]', query)
+        
+        relevant_docs = set()
+        for term in query_terms:
+            term = term.strip()  # Clean up any spaces
+            if term in self.ground_truth:
+                relevant_docs.update(self.ground_truth[term])
+    
         retrieved_docs = set(doc.document_id for score, doc in result_list)
         true_positives = relevant_docs & retrieved_docs
-
+    
         if not retrieved_docs:
             return -1
-
+    
         precision = len(true_positives) / len(retrieved_docs)
         return precision
-
+    
     def calculate_recall(self, query: str, result_list: list[tuple]) -> float:
-        if query not in self.ground_truth:
-            return -1
-
-        relevant_docs = self.ground_truth[query]
+        # Split the query on logical operators if needed
+        query_terms = re.split(r'[&|\-]', query)
+        
+        relevant_docs = set()
+        for term in query_terms:
+            term = term.strip()  # Clean up any spaces
+            if term in self.ground_truth:
+                relevant_docs.update(self.ground_truth[term])
+    
         retrieved_docs = set(doc.document_id for score, doc in result_list)
         true_positives = relevant_docs & retrieved_docs
-
+    
         if not relevant_docs:
             return -1
-
-
+    
         recall = len(true_positives) / len(relevant_docs)
         return recall
-
+    
 
 if __name__ == '__main__':
     irs = InformationRetrievalSystem()

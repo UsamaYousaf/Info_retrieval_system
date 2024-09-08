@@ -52,6 +52,9 @@ class InvertedListBooleanModel(RetrievalModel):
         self.all_docs = set()
 
     def build_inverted_list(self, documents):
+        """
+        Builds an inverted list (index) from the given collection of documents.
+        """
         for doc_id, document in enumerate(documents):
             self.all_docs.add(doc_id)
             for term in document.terms:
@@ -61,6 +64,9 @@ class InvertedListBooleanModel(RetrievalModel):
                 self.inverted_index[term].add(doc_id)
 
     def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
+        """
+        Converts a document into a representation (just adds terms to the inverted list).
+        """
         if stopword_filtering:
             terms = document.filtered_terms
         else:
@@ -70,60 +76,93 @@ class InvertedListBooleanModel(RetrievalModel):
             terms = document.stemmed_terms
 
         term_counter = Counter(term.lower() for term in terms)  # Convert terms to lower case
-        return {term: 1 for term in term_counter}
+        return {term: 1 for term in term_counter}  # Each term is represented by 1 (binary presence)
 
     def query_to_representation(self, query: str):
-        tokens = re.split(r'(\(|\)|\&|\||\-)', query.lower())  # Convert query to lower case
-        return [token for token in tokens if token.strip()]
+        """
+        Converts a query into a tokenized form, splitting on logical operators.
+        """
+        tokens = re.split(r'(\(|\)|\&|\||\-)', query.lower())  # Split by AND, OR, NOT operators and parentheses
+        return [token.strip() for token in tokens if token.strip()]  # Remove any empty tokens or spaces
 
     def match(self, document_representation, query_representation) -> float:
-        raise NotImplementedError()
+        """
+        The match function for Boolean retrieval isn't a similarity measure; 
+        it checks if a document contains the required terms.
+        """
+        doc_terms = set(document_representation.keys())  # Terms in the document
+        query_terms = set(query_representation.keys())  # Terms in the query
+        
+        # Check if all query terms are present in the document (AND operation)
+        return 1.0 if query_terms.issubset(doc_terms) else 0.0
 
     def search(self, query):
-        tokens = self.query_to_representation(query.lower())  # Convert query to lower case
+        """
+        Searches for documents that match the given query, handling logical operators.
+        """
+        tokens = self.query_to_representation(query.lower())  # Tokenize the query
         result_stack = []
-        for token in tokens:
-            if token == '&':
-                if len(result_stack) < 2:  
-                    return []
-                right = result_stack.pop()
-                left = result_stack.pop()
+        operator_stack = []  # Stack to hold operators like &, |, and -
+    
+        def apply_operator():
+            """ Helper function to apply the operator on top of the operator stack to the result stack. """
+            if len(result_stack) < 2 and operator_stack[-1] != '-':
+                return []  # Not enough operands for binary operators
+            right = result_stack.pop() if operator_stack[-1] != '-' else None
+            left = result_stack.pop() if right else result_stack.pop()
+            
+            operator = operator_stack.pop()
+    
+            if operator == '&':
                 result_stack.append(left & right)
-            elif token == '|':
-                if len(result_stack) < 2:  
-                    return []
-                right = result_stack.pop()
-                left = result_stack.pop()
+            elif operator == '|':
                 result_stack.append(left | right)
+            elif operator == '-':
+                result_stack.append(self.all_docs - left)
+    
+        for token in tokens:
+            if token == '&' or token == '|':
+                # Apply the last operator if it's already present
+                while operator_stack and operator_stack[-1] in ('&', '|'):
+                    apply_operator()
+                operator_stack.append(token)
             elif token == '-':
-                if not result_stack:  # Ensure there is an operand
-                    return []
-                term = result_stack.pop()
-                result_stack.append(self.all_docs - term)
+                # Negation (NOT) operator; no need to check stack size before
+                operator_stack.append(token)
             else:
+                # It's a term, get the set of documents containing the term
                 if token in self.inverted_index:
                     result_stack.append(self.inverted_index[token])
                 else:
-                    result_stack.append(set())
+                    result_stack.append(set())  # Empty set if the term is not in the inverted index
+    
+        # After all tokens, apply any remaining operators
+        while operator_stack:
+            apply_operator()
+    
+        # Final check after processing all tokens
         if not result_stack:
-            return []
+            return []  # If nothing is on the stack, return no matches
+    
         return result_stack.pop()
-
-    def __str__(self):
-        return 'Boolean Model (Inverted List)'
-
+    
+        def __str__(self):
+            return 'Boolean Model (Inverted List)'
+    
 class SignatureBasedBooleanModel(RetrievalModel):
     def __init__(self, F=64, D=4):
-        self.F = F
-        self.D = D
+        self.F = F  # Bit length of the signature
+        self.D = D  # Number of hash functions to use
         self.documents = []
-        self.signatures = []
+        self.signatures = []  # This will store a list of signatures for each document
 
     def _hash_function(self, term, seed):
+        # Hashing function based on term and seed
         h = hashlib.sha256(term.encode('utf-8') + str(seed).encode('utf-8'))
         return int(h.hexdigest(), 16) % self.F
 
     def _create_signature(self, terms):
+        # Create a signature based on a list of terms
         signature = [0] * self.F
         for term in terms:
             term = term.lower()  # Convert term to lower case
@@ -133,6 +172,7 @@ class SignatureBasedBooleanModel(RetrievalModel):
         return signature
 
     def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
+        # Get the terms for the document based on filtering and stemming
         if stopword_filtering:
             terms = document.filtered_terms
         else:
@@ -141,46 +181,72 @@ class SignatureBasedBooleanModel(RetrievalModel):
         if stemming:
             terms = document.stemmed_terms
 
-        signature = self._create_signature(terms)
+        # Divide the document terms into sections of 5 terms each
+        sections = [terms[i:i+5] for i in range(0, len(terms), 5)]
+        doc_signatures = []
+        for section in sections:
+            signature = self._create_signature(section)
+            doc_signatures.append(signature)
+
+        # Store the document and its corresponding signatures
         self.documents.append(document)
-        self.signatures.append(signature)
-        return signature
+        self.signatures.append(doc_signatures)
+
+        return doc_signatures  # Return the list of signatures for the document
 
     def query_to_representation(self, query: str):
         query_terms = query.lower().split()  # Convert query terms to lower case
-        query_signature = self._create_signature(query_terms)
-        return query_signature
+        # Divide the query terms into sections of 5 terms (or fewer)
+        sections = [query_terms[i:i+5] for i in range(0, len(query_terms), 5)]
+        query_signatures = [self._create_signature(section) for section in sections]
+        return query_signatures  # Return a list of signatures for each section of the query
 
-    def match(self, document_representation, query_representation) -> float:
-        match_count = sum(1 for doc_bit, query_bit in zip(document_representation, query_representation) if doc_bit & query_bit)
-        return match_count / self.F  # Normalize by the bit array length
+    def match(self, document_signatures, query_signatures) -> bool:
+        # Check if any of the document's signatures match any of the query signatures
+        for doc_sig in document_signatures:
+            for query_sig in query_signatures:
+                matching_bits = sum(1 for doc_bit, query_bit in zip(doc_sig, query_sig) if doc_bit & query_bit)
+                query_active_bits = sum(query_sig)  # Total number of '1's in the query signature
+                if query_active_bits > 0 and matching_bits / query_active_bits > 0.5:  # Set a threshold for a match
+                    return True
+        return False
 
     def search(self, query: str):
-        tokens = re.split(r'(\(|\)|\&|\|)', query.lower())  # Convert query to lower case
-        tokens = [token.strip() for token in tokens if token.strip()]
+        # Tokenize the query by splitting on AND (&), OR (|), parentheses
+        tokens = re.split(r'(\(|\)|\&|\|)', query.lower())
+        tokens = [token.strip() for token in tokens if token.strip()]  # Remove empty spaces
 
         result_stack = []
+
         for token in tokens:
-            if token == '&':
-                if len(result_stack) < 2:  
-                    return []
+            if token == '&':  # Logical AND
+                if len(result_stack) < 2:
+                    return []  # Invalid state, return no matches
                 right = result_stack.pop()
                 left = result_stack.pop()
-                result_stack.append([l & r for l, r in zip(left, right)])
-            elif token == '|':
-                if len(result_stack) < 2:  
-                    return []
+                result_stack.append([l & r for l, r in zip(left, right)])  # Bitwise AND operation
+
+            elif token == '|':  # Logical OR
+                if len(result_stack) < 2:
+                    return []  # Invalid state, return no matches
                 right = result_stack.pop()
                 left = result_stack.pop()
-                result_stack.append([l | r for l, r in zip(left, right)])
-            else:
-                query_signature = self.query_to_representation(token)
-                match_scores = [self.match(doc_sig, query_signature) for doc_sig in self.signatures]
-                result_stack.append([score > 0 for score in match_scores])
+                result_stack.append([l | r for l, r in zip(left, right)])  # Bitwise OR operation
+
+            else:  # It's a term
+                query_signatures = self.query_to_representation(token)
+                matches = [self.match(doc_signatures, query_signatures) for doc_signatures in self.signatures]
+                result_stack.append(matches)
 
         if not result_stack:
-            return []
-        results = [self.documents[i] for i, match in enumerate(result_stack.pop()) if match]
+            return []  # If nothing is on the stack, return no results
+
+        final_matches = result_stack.pop()
+
+        # Get all documents that matched
+
+        results = [self.documents[i] for i, match in enumerate(final_matches) if match]
+
         return results
 
     def __str__(self):
