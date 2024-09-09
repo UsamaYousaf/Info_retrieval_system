@@ -202,56 +202,74 @@ class SignatureBasedBooleanModel(RetrievalModel):
         return query_signatures  # Return a list of signatures for each section of the query
 
     def match(self, document_signatures, query_signatures) -> bool:
-        # Check if any of the document's signatures match any of the query signatures
+        # Stricter matching threshold to avoid too many false positives
         for doc_sig in document_signatures:
             for query_sig in query_signatures:
                 matching_bits = sum(1 for doc_bit, query_bit in zip(doc_sig, query_sig) if doc_bit & query_bit)
                 query_active_bits = sum(query_sig)  # Total number of '1's in the query signature
-                if query_active_bits > 0 and matching_bits / query_active_bits > 0.5:  # Set a threshold for a match
+                if query_active_bits > 0 and matching_bits / query_active_bits >= 0.75:  # Tighten match threshold
                     return True
         return False
 
     def search(self, query: str):
-        # Tokenize the query by splitting on AND (&), OR (|), parentheses
+        """
+        Searches for documents that match the given query, handling logical operators.
+        """
+        # Tokenize the query by splitting on AND (&), OR (|), parentheses, and stripping tokens
         tokens = re.split(r'(\(|\)|\&|\|)', query.lower())
         tokens = [token.strip() for token in tokens if token.strip()]  # Remove empty spaces
 
         result_stack = []
+        operator_stack = []  # Stack for operators (&, |, -)
+
+        def apply_operator():
+            """ Helper function to apply the operator on top of the operator stack to the result stack. """
+            if len(result_stack) < 2 and operator_stack[-1] != '-':
+                return []  # Not enough operands for binary operators
+            right = result_stack.pop() if operator_stack[-1] != '-' else None
+            left = result_stack.pop() if right else result_stack.pop()
+
+            operator = operator_stack.pop()
+
+            if operator == '&':
+                result_stack.append([l & r for l, r in zip(left, right)])  # Bitwise AND operation
+            elif operator == '|':
+                result_stack.append([l | r for l, r in zip(left, right)])  # Bitwise OR operation
+            elif operator == '-':
+                result_stack.append([not l for l in left])  # Logical NOT
 
         for token in tokens:
-            if token == '&':  # Logical AND
-                if len(result_stack) < 2:
-                    return []  # Invalid state, return no matches
-                right = result_stack.pop()
-                left = result_stack.pop()
-                result_stack.append([l & r for l, r in zip(left, right)])  # Bitwise AND operation
-
-            elif token == '|':  # Logical OR
-                if len(result_stack) < 2:
-                    return []  # Invalid state, return no matches
-                right = result_stack.pop()
-                left = result_stack.pop()
-                result_stack.append([l | r for l, r in zip(left, right)])  # Bitwise OR operation
-
-            else:  # It's a term
+            if token in ('&', '|'):
+                # Apply the last operator if it's already present
+                while operator_stack and operator_stack[-1] in ('&', '|'):
+                    apply_operator()
+                operator_stack.append(token)
+            elif token == '-':
+                # Negation (NOT) operator; no need to check stack size before
+                operator_stack.append(token)
+            else:
+                # It's a term, get the document signatures and perform matching
                 query_signatures = self.query_to_representation(token)
                 matches = [self.match(doc_signatures, query_signatures) for doc_signatures in self.signatures]
                 result_stack.append(matches)
 
+        # After all tokens, apply any remaining operators
+        while operator_stack:
+            apply_operator()
+
+        # Final check after processing all tokens
         if not result_stack:
-            return []  # If nothing is on the stack, return no results
+            return []  # If nothing is on the stack, return no matches
 
         final_matches = result_stack.pop()
 
         # Get all documents that matched
-
         results = [self.documents[i] for i, match in enumerate(final_matches) if match]
 
         return results
 
     def __str__(self):
         return 'Boolean Model (Signatures)'
-
 class VectorSpaceModel(RetrievalModel):
     def __init__(self):
         self.inverted_index = defaultdict(list)
