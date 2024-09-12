@@ -19,11 +19,17 @@ class RetrievalModel(ABC):
     def match(self, document_representation, query_representation) -> float:
         pass
 
+from collections import Counter
+import re
+
 class LinearBooleanModel(RetrievalModel):
     def __init__(self):
-        pass
+        self.documents = []  # Store all documents
 
     def document_to_representation(self, document: Document, stopword_filtering=False, stemming=False):
+        """
+        Converts a document into a representation suitable for Boolean retrieval.
+        """
         if stopword_filtering:
             terms = document.filtered_terms
         else:
@@ -36,12 +42,103 @@ class LinearBooleanModel(RetrievalModel):
         return {term: 1 for term in term_counter}
 
     def query_to_representation(self, query: str):
-        query_terms = query.lower().split()  # Split query into terms and convert to lower case
-        return {term: 1 for term in query_terms}
+        """
+        Converts a query into a list of tokens, splitting on logical operators.
+        """
+        tokens = re.split(r'(\(|\)|\&|\||\-)', query.lower())  # Split by AND, OR, NOT operators and parentheses
+        return [token.strip() for token in tokens if token.strip()]  # Remove any empty tokens or spaces
 
     def match(self, document_representation, query_representation) -> float:
-        common_terms = set(document_representation.keys()).intersection(query_representation.keys())
-        return len(common_terms)  # Return the count of common terms
+       # Ensure both representations are dictionaries or convert them if they are lists
+       if isinstance(document_representation, list):
+           document_representation = {term: 1 for term in document_representation}  # Convert to dictionary
+       
+       if isinstance(query_representation, list):
+           query_representation = {term: 1 for term in query_representation}  # Convert to dictionary
+   
+       # Now proceed with matching
+       common_terms = set(document_representation.keys()).intersection(query_representation.keys())
+       return len(common_terms)  # Return the count of common terms
+   
+
+    def search(self, query: str):
+        """
+        Searches for documents that match the given query, handling logical operators.
+        """
+        tokens = self.query_to_representation(query)  # Tokenize the query
+        result_stack = []
+        operator_stack = []  # Stack to hold operators like &, |, and -
+
+        def apply_operator():
+            """ Helper function to apply the operator on top of the operator stack to the result stack. """
+            if len(result_stack) < 2 and operator_stack[-1] != '-':
+                return set()  # Not enough operands for binary operators
+            right = result_stack.pop() if operator_stack[-1] != '-' else None
+            left = result_stack.pop() if right else result_stack.pop()
+
+            operator = operator_stack.pop()
+
+            if operator == '&':
+                result_stack.append(left.intersection(right))  # AND operation
+            elif operator == '|':
+                result_stack.append(left.union(right))  # OR operation
+            elif operator == '-':
+                result_stack.append(self._negate_set(left))  # NOT operation (negation of left)
+
+        for token in tokens:
+            if token == '&' or token == '|':
+                # Apply the last operator if it's already present
+                while operator_stack and operator_stack[-1] in ('&', '|'):
+                    apply_operator()
+                operator_stack.append(token)
+            elif token == '-':
+                # Negation (NOT) operator; no need to check stack size before
+                operator_stack.append(token)
+            elif token == '(':
+                operator_stack.append(token)  # Push the opening parenthesis
+            elif token == ')':
+                # Apply all operators until the matching '(' is found
+                while operator_stack and operator_stack[-1] != '(':
+                    apply_operator()
+                operator_stack.pop()  # Pop the '(' from the stack
+            else:
+                # It's a term, get the set of document IDs containing the term
+                result_stack.append(self._get_matching_docs(token))
+
+        # After all tokens, apply any remaining operators
+        while operator_stack:
+            apply_operator()
+
+        # Final check after processing all tokens
+        if not result_stack:
+            return []  # If nothing is on the stack, return no matches
+
+        final_result = result_stack.pop()
+        return [self.documents[doc_id] for doc_id in final_result]  # Return the documents that matched
+
+    def _get_matching_docs(self, term):
+        """
+        Returns the set of document IDs that contain the given term.
+        """
+        matching_docs = set()
+        for doc_id, doc_rep in enumerate(self.documents):
+            if term in doc_rep:
+                matching_docs.add(doc_id)
+        return matching_docs
+
+    def _negate_set(self, matching_docs):
+        """
+        Returns the complement of the matching documents (i.e., all documents that don't match).
+        """
+        all_docs = set(range(len(self.documents)))  # All document IDs
+        return all_docs - matching_docs  # Documents that don't match
+
+    def add_document(self, document: Document, stopword_filtering=False, stemming=False):
+        """
+        Adds a document to the collection.
+        """
+        doc_rep = self.document_to_representation(document, stopword_filtering, stemming)
+        self.documents.append(doc_rep)
 
     def __str__(self):
         return 'Boolean Model (Linear)'

@@ -128,7 +128,7 @@ class InformationRetrievalSystem(object):
                 end_time = time.time()
 
                 # Output of results:
-                print(f'\nTotal results: {len(results)}\n')  # Show total number of results
+                #print(f'\nTotal results: {len(results)}\n')  #Show total number of results
 
                 for index, (score, document) in enumerate(results, start=1):  # Enumerate to number the results
                     print(f' {score}: {document}')
